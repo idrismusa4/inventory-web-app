@@ -109,20 +109,6 @@ export default function Home() {
     setImageUrl('');
   };
 
-  const handleDelete = (item) => {
-    setItemToDelete(item);
-    setDeleteConfirmOpen(true);
-  };
-
-  const confirmDelete = async () => {
-    if (itemToDelete) {
-      await deleteDoc(doc(collection(firestore, 'inventory'), itemToDelete.name));
-      await updateInventory();
-    }
-    setDeleteConfirmOpen(false);
-    setItemToDelete(null);
-  };
-
   const openCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -152,7 +138,7 @@ export default function Home() {
   };
 
   const uploadImage = async () => {
-    if (!imageUrl) return;
+    if (!imageUrl) return null;
 
     try {
       // Convert data URL to blob
@@ -165,7 +151,6 @@ export default function Home() {
 
       // Get download URL
       const downloadURL = await getDownloadURL(storageRef);
-
       return downloadURL;
     } catch (error) {
       console.error('Error uploading image:', error);
@@ -176,24 +161,40 @@ export default function Home() {
   const handleSubmit = async () => {
     if (!itemName.trim()) return;
     
-    let downloadURL = null;
-    if (imageUrl) {
-      downloadURL = await uploadImage();
-    }
+    try {
+      let downloadURL = imageUrl;
+      if (imageUrl && imageUrl.startsWith('data:')) {
+        downloadURL = await uploadImage();
+      }
 
-    const docRef = doc(collection(firestore, 'inventory'), itemName.trim());
-    if (editMode) {
-      if (editItemOriginalName !== itemName) {
+      const docRef = doc(collection(firestore, 'inventory'), itemName.trim());
+      if (editMode && editItemOriginalName !== itemName) {
         await deleteDoc(doc(collection(firestore, 'inventory'), editItemOriginalName));
       }
+      await setDoc(docRef, { 
+        quantity: itemQuantity,
+        imageUrl: downloadURL
+      }, { merge: true });
+      
+      await updateInventory();
+      handleClose();
+    } catch (error) {
+      console.error('Error submitting item:', error);
     }
-    await setDoc(docRef, { 
-      quantity: itemQuantity,
-      ...(downloadURL && { imageUrl: downloadURL })
-    }, { merge: true });
-    
-    await updateInventory();
-    handleClose();
+  };
+
+  const handleDelete = async (item) => {
+    setItemToDelete(item);
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (itemToDelete) {
+      await deleteDoc(doc(collection(firestore, 'inventory'), itemToDelete.name));
+      await updateInventory();
+    }
+    setDeleteConfirmOpen(false);
+    setItemToDelete(null);
   };
 
   return (
@@ -271,6 +272,7 @@ export default function Home() {
               <video 
                 ref={videoRef} 
                 autoPlay 
+                playsInline
                 style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover' }}
               />
             </Box>
@@ -320,9 +322,7 @@ export default function Home() {
             </Typography>
           ) : (
             <Stack spacing={2} sx={{ maxHeight: 400, overflow: 'auto' }}>
-              {inventory.filter(item => 
-                item.name.toLowerCase().includes(searchTerm.toLowerCase())
-              ).map((item) => (
+              {inventory.map((item) => (
                 <Paper key={item.name} elevation={2} sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     {item.imageUrl && (
